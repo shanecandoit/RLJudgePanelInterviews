@@ -30,15 +30,16 @@ class WorldModel(nn.Module):
 
 class JudgeEnsemble:
     def __init__(self, obs_dim: int, n_actions: int, n_judges: int = 8, seed: int = 0, lr: float = 1e-3,
-                 hidden_sizes: Sequence[int] = (64, 128)) -> None:
+                 hidden_sizes: Sequence[int] = (64, 128), device: str = "cpu") -> None:
+        self.device = torch.device(device)
         self.J, self.obs_dim, self.n_actions = n_judges, obs_dim, n_actions
         self.models = []
         for j in range(n_judges):
             torch.manual_seed(seed * 100 + j)
-            self.models.append(WorldModel(obs_dim, n_actions, hidden_sizes[j % len(hidden_sizes)]))
+            self.models.append(WorldModel(obs_dim, n_actions, hidden_sizes[j % len(hidden_sizes)]).to(self.device))
         params = [p for m in self.models for p in m.parameters()]
         self.opt = torch.optim.Adam(params, lr=lr)
-        self.weights = torch.full((n_judges,), 1.0 / n_judges)  # competence; anchors only
+        self.weights = torch.full((n_judges,), 1.0 / n_judges, device=self.device)  # competence; anchors only
         self.grad_steps = 0
 
     @torch.no_grad()
@@ -63,7 +64,7 @@ class JudgeEnsemble:
         """boot: (N, J) bootstrap weights. Judges see different resamples of the same buffer."""
         n, total = obs.shape[0], 0.0
         for _ in range(steps):
-            idx = torch.randint(0, n, (min(batch_size, n),), generator=gen)
+            idx = torch.randint(0, n, (min(batch_size, n),), generator=gen).to(obs.device)
             loss = 0.0
             for j, m in enumerate(self.models):
                 d, r, dl = m(obs[idx], act[idx])
@@ -89,7 +90,7 @@ class JudgeEnsemble:
         w = torch.softmax(-m / (tau * m.mean() + 1e-8), 0)
         self.weights = ema * self.weights + (1 - ema) * w
         self.weights = self.weights / self.weights.sum()
-        return err.numpy()
+        return err.cpu().numpy()
 
 
 def mean_pairwise_error_correlation(err: np.ndarray) -> float:

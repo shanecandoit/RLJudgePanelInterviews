@@ -2,5 +2,5 @@ PPO asymptote 0.000; threshold (80%) 0.000
 metric             ppo       panel   ppo/panel   reached ppo/panel
 env_steps        1,024       320.0       3.20x        100%/100%
 iteration          1.0         1.0       1.00x        100%/100%
-wall_s             0.7         2.2       0.32x        100%/100%
+wall_s             0.5         2.8       0.19x        100%/100%
 H1 (>= 5x fewer samples than PPO): FAIL

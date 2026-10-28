@@ -83,3 +83,23 @@ def test_train_ppo_is_seed_deterministic():
 def test_ppo_learns_empty_grid():
     model, log = train_ppo("MiniGrid-Empty-5x5-v0", total_steps=60_000, seed=0)
     assert evaluate(model, "MiniGrid-Empty-5x5-v0", 10) > 0.5
+
+
+def test_evaluate_samples_by_default_and_does_not_touch_global_rng():
+    torch.manual_seed(0)
+    m = ActorCritic(75, 7)
+    state = torch.get_rng_state()
+    a = evaluate(m, "MiniGrid-Empty-5x5-v0", 2)
+    assert torch.equal(state, torch.get_rng_state())          # eval must not perturb training RNG
+    assert a == evaluate(m, "MiniGrid-Empty-5x5-v0", 2)       # but is reproducible
+
+
+def test_evaluate_sampling_escapes_a_greedy_loop():
+    """A policy that prefers 'forward' (2) but keeps some mass elsewhere: argmax loops at the wall, sampling finishes."""
+    m = ActorCritic(75, 7)
+    with torch.no_grad():
+        for p in m.parameters():
+            p.zero_()
+        m.pi.bias[2] = 3.0
+    assert evaluate(m, "MiniGrid-Empty-5x5-v0", 10, greedy=True) == 0.0
+    assert evaluate(m, "MiniGrid-Empty-5x5-v0", 10) > 0.0

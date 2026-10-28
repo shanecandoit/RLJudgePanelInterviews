@@ -23,16 +23,18 @@ def main() -> None:
     ap.add_argument("--ppo-steps", type=int, default=200_000)
     ap.add_argument("--panel-steps", type=int, default=50_000)
     ap.add_argument("--eval-episodes", type=int, default=10)
+    ap.add_argument("--device", default="auto", help="auto|cpu|cuda|mps; tiny nets can be faster on cpu")
     ap.add_argument("--out", default="runs/h1")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
     ppo_logs, panel_logs = [], []
     for s in range(args.seeds):
-        model, log = train_ppo(args.env, args.ppo_steps, seed=s, eval_episodes=args.eval_episodes)
+        model, log = train_ppo(args.env, args.ppo_steps, seed=s, eval_episodes=args.eval_episodes, device=args.device)
         log.save(os.path.join(args.out, f"ppo_s{s}.json")); ppo_logs.append(log)
         torch.save(model.state_dict(), os.path.join(args.out, f"ppo_s{s}.pt"))
-        model, judges, log = train_panel(args.env, args.panel_steps, seed=s, eval_episodes=args.eval_episodes)
+        model, judges, log = train_panel(args.env, args.panel_steps, seed=s, eval_episodes=args.eval_episodes,
+                                      device=args.device)
         log.save(os.path.join(args.out, f"panel_s{s}.json")); panel_logs.append(log)
         torch.save({"policy": model.state_dict(), "judges": [m.state_dict() for m in judges.models],
                     "weights": judges.weights}, os.path.join(args.out, f"panel_s{s}.pt"))

@@ -5,7 +5,7 @@ Columns every algorithm must write per iteration:
   env_steps   total charged environment samples so far
   wall_s      training wall time in seconds (evaluation time excluded)
   grad_steps  optimizer steps taken by the policy and (for the panel) the judges
-  eval_return mean greedy return on uncounted evaluation episodes
+  eval_return mean sampled-policy return on uncounted evaluation episodes
 """
 from __future__ import annotations
 

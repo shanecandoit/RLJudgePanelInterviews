@@ -18,6 +18,16 @@ from panel.analysis.runlog import RunLog
 from panel.envs.counting import SampleCounter, make_minigrid
 
 
+def pick_device(name: str = "auto") -> torch.device:
+    if name != "auto":
+        return torch.device(name)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 @dataclass
 class PPOConfig:
     n_envs: int = 8
@@ -73,7 +83,7 @@ def ppo_update(model: ActorCritic, opt: torch.optim.Optimizer, batch: Dict[str, 
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
     grad_steps, loss_sum = 0, 0.0
     for _ in range(cfg.epochs):
-        perm = torch.randperm(n, generator=gen)
+        perm = torch.randperm(n, generator=gen).to(obs.device)
         for s in range(0, n, cfg.minibatch):
             mb = perm[s:s + cfg.minibatch]
             logits, v = model(obs[mb])
@@ -92,23 +102,32 @@ def ppo_update(model: ActorCritic, opt: torch.optim.Optimizer, batch: Dict[str, 
 
 
 @torch.no_grad()
-def evaluate(model: ActorCritic, env_id: str, n_episodes: int = 10, seed: int = 10_000) -> float:
-    """Mean greedy return on an uncounted env. Episodes are bounded by the env's TimeLimit."""
+def evaluate(model: ActorCritic, env_id: str, n_episodes: int = 10, seed: int = 10_000,
+             greedy: bool = False) -> float:
+    """Mean return on an uncounted env, sampling from the policy (own RNG, so training is unaffected).
+
+    Greedy argmax is available but scores 0 on undertrained policies that loop on "forward" at a wall.
+    Episodes are bounded by the env's TimeLimit.
+    """
+    gen = torch.Generator().manual_seed(seed)
     env = make_minigrid(env_id)
+    dev = next(model.parameters()).device
     total = 0.0
     for i in range(n_episodes):
         obs, _ = env.reset(seed=seed + i)
         done = False
         while not done:
-            logits, _ = model(torch.as_tensor(obs).unsqueeze(0))
-            obs, r, term, trunc, _ = env.step(int(logits.argmax(-1)))
+            logits, _ = model(torch.as_tensor(obs, device=dev).unsqueeze(0))
+            a = logits.argmax(-1) if greedy else torch.multinomial(torch.softmax(logits, -1).cpu(), 1, generator=gen)
+            obs, r, term, trunc, _ = env.step(int(a))
             total += r
             done = term or trunc
     return total / n_episodes
 
 
 def train_ppo(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[PPOConfig] = None,
-              eval_episodes: int = 10, counter: Optional[SampleCounter] = None) -> "tuple[ActorCritic, RunLog]":
+              eval_episodes: int = 10, counter: Optional[SampleCounter] = None,
+              device: str = "cpu") -> "tuple[ActorCritic, RunLog]":
     """Train until at least `total_steps` env samples are charged (overshoots by < one iteration)."""
     cfg = cfg or PPOConfig()
     torch.manual_seed(seed)
@@ -117,7 +136,8 @@ def train_ppo(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[PPOCon
     envs = [make_minigrid(env_id, counter) for _ in range(cfg.n_envs)]
     obs = np.stack([e.reset(seed=seed * 1000 + i)[0] for i, e in enumerate(envs)])
     obs_dim, n_actions = obs.shape[1], int(envs[0].action_space.n)
-    model = ActorCritic(obs_dim, n_actions, cfg.hidden)
+    dev = pick_device(device)
+    model = ActorCritic(obs_dim, n_actions, cfg.hidden).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr, eps=1e-5)
 
     log = RunLog("ppo", env_id, seed)
@@ -126,19 +146,21 @@ def train_ppo(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[PPOCon
     train_s, grad_steps, it = 0.0, 0, 0
     while counter.n < total_steps:
         t0 = time.perf_counter()
-        b_obs = torch.zeros(T, N, obs_dim)
-        b_act = torch.zeros(T, N, dtype=torch.long)
-        b_logp, b_val, b_rew, b_done = (torch.zeros(T, N) for _ in range(4))
+        b_obs = torch.zeros(T, N, obs_dim, device=dev)
+        b_act = torch.zeros(T, N, dtype=torch.long, device=dev)
+        b_logp, b_val = (torch.zeros(T, N, device=dev) for _ in range(2))
+        b_rew, b_done = np.zeros((T, N), np.float32), np.zeros((T, N), np.float32)
         for t in range(T):
-            o = torch.as_tensor(obs)
+            o = torch.as_tensor(obs, device=dev)
             with torch.no_grad():
                 logits, v = model(o)
                 dist = Categorical(logits=logits)
                 a = dist.sample()
                 logp = dist.log_prob(a)
             b_obs[t], b_act[t], b_logp[t], b_val[t] = o, a, logp, v
+            a_np = a.cpu().numpy()
             for i, e in enumerate(envs):
-                o2, r, term, trunc, _ = e.step(int(a[i]))
+                o2, r, term, trunc, _ = e.step(int(a_np[i]))
                 ep_ret[i] += r
                 b_rew[t, i] = r
                 if term or trunc:
@@ -148,7 +170,8 @@ def train_ppo(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[PPOCon
                     o2, _ = e.reset()
                 obs[i] = o2
         with torch.no_grad():
-            _, last_v = model(torch.as_tensor(obs))
+            _, last_v = model(torch.as_tensor(obs, device=dev))
+        b_rew, b_done = torch.as_tensor(b_rew, device=dev), torch.as_tensor(b_done, device=dev)
         adv, ret = compute_gae(b_rew, b_val, b_done, last_v, cfg.gamma, cfg.gae_lambda)
         batch = {"obs": b_obs.reshape(T * N, -1), "act": b_act.reshape(-1), "logp": b_logp.reshape(-1),
                  "adv": adv.reshape(-1), "ret": ret.reshape(-1)}

@@ -29,6 +29,6 @@ class Replay:
             i = int(self.rng.integers(self.pool_size))
             self.pool_obs[i], self.pool_snaps[i] = obs, snap
 
-    def tensors(self):
-        t = lambda x, dt=torch.float32: torch.as_tensor(np.asarray(x), dtype=dt)
+    def tensors(self, device="cpu"):
+        t = lambda x, dt=torch.float32: torch.as_tensor(np.asarray(x), dtype=dt, device=device)
         return (t(self.obs), t(self.act, torch.long), t(self.rew), t(self.next_obs), t(self.done), t(self.boot))
