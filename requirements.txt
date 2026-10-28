@@ -1,0 +1,5 @@
+torch>=2.0
+gymnasium>=0.29,<1.0
+minigrid>=2.3
+numpy<2
+pytest>=7
