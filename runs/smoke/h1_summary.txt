@@ -1,6 +1,6 @@
-PPO asymptote 0.000; threshold (80%) 0.000
+PPO asymptote 0.208; threshold (80%) 0.167
 metric             ppo       panel   ppo/panel   reached ppo/panel
-env_steps        1,024       320.0       3.20x        100%/100%
-iteration          1.0         1.0       1.00x        100%/100%
-wall_s             0.5         2.8       0.19x        100%/100%
-H1 (>= 5x fewer samples than PPO): FAIL
+env_steps       17,408       never           -        100%/0%
+iteration         17.0       never           -        100%/0%
+wall_s            10.0       never           -        100%/0%
+H1 (>= 5x fewer samples than PPO): not measurable (a method never reached the threshold)

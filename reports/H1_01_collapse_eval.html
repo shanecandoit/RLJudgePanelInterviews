@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel collapse eval: Empty-5x5</title>
+<style>
+:root{
+  --bg:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781; --grid:#e1e0d9; --axis:#c3c2b7;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#6250d6; --bad:#d03b3b; --good:#006300;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d0d0d; --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --grid:#2c2c2a; --axis:#383835;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#9085e9; --bad:#e66767; --good:#0ca30c; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0d0d0d; --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --grid:#2c2c2a; --axis:#383835;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#9085e9; --bad:#e66767; --good:#0ca30c; color-scheme:dark;}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;padding-inline:max(16px,4vw)}
+main{max-width:980px;margin:0 auto;padding-block:32px 64px}
+h1{font-size:1.7rem;margin:0 0 4px;letter-spacing:-.01em} h2{font-size:1.15rem;margin:36px 0 8px}
+.sub{color:var(--ink2);margin:0 0 20px}
+p,li{max-width:70ch} ul{padding-left:1.2em}
+.card{background:var(--surface);border:1px solid var(--grid);border-radius:10px;padding:16px;margin:12px 0}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:16px 0}
+.tile .n{font-size:1.9rem;font-weight:650;letter-spacing:-.02em} .tile .l{color:var(--ink2);font-size:.85rem}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:4px 0 8px;font-size:.85rem;color:var(--ink2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:14px;height:3px;border-radius:2px;display:inline-block}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--grid);white-space:nowrap}
+th{color:var(--ink2);font-weight:600} td.num,th.num{text-align:right}
+td.wrap{white-space:normal;min-width:240px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+svg text{fill:var(--muted);font-size:11px} svg .lab{font-size:11.5px;font-weight:600}
+#tip{position:fixed;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--axis);border-radius:6px;padding:6px 9px;font-size:.8rem;display:none;box-shadow:0 2px 8px #0003;z-index:5}
+.note{color:var(--ink2);font-size:.85rem}
+.tag{font-size:.75rem;padding:1px 7px;border-radius:99px;border:1px solid var(--axis);color:var(--ink2)}
+</style>
+</head>
+<body>
+<main>
+<h1>Panel collapse eval: Empty-5x5</h1>
+<p class="sub">Does the judge-panel agent keep its return when imagination is shortened or mixed with real rollouts? Single seed, 4,000 env samples per run, 2026-10-28.</p>
+
+<div class="tiles">
+  <div class="card tile"><div class="n" style="color:var(--bad)">0.00</div><div class="l">Control (imagined horizon 8, all imagined): return after 3,456 samples</div></div>
+  <div class="card tile"><div class="n">0.72</div><div class="l">Best peak: horizon 2, imagination only, at ~1,100 samples</div></div>
+  <div class="card tile"><div class="n">5 / 5</div><div class="l">Variants that never fell to zero (all of them changed or shortened the horizon, or mixed real data)</div></div>
+</div>
+
+<h2>Finding</h2>
+<ul>
+  <li><b>Horizon is the lever.</b> Every horizon-2 run learns and stays above 0. The horizon-8 control collapses to 0.00 and stays there. Horizon 8 with real data mixed in (<code>mix50_h8</code>) never collapses but learns poorly (0.07–0.36).</li>
+  <li><b>Real rollouts did not help on this env.</b> Imagination-only horizon 2 is fastest early (0.68 at 832 samples). Mixes spend budget on real steps and reach similar levels later. The ramp (real-only at first) is slowest.</li>
+  <li><b>Likely cause:</b> model errors compounding over long imagined rollouts. This is consistent with the data but not isolated from entropy collapse (see ablations).</li>
+  <li><b>Scope:</b> this is the easiest env. A flat 0.0 on DoorKey-5x5 at 8k samples (old settings) shows the result may not transfer, so env difficulty is a first-class axis below.</li>
+</ul>
+
+<h2>Eval return vs env samples</h2>
+<div class="card">
+  <div class="legend" id="legend"></div>
+  <svg id="chart" viewBox="0 0 900 380" width="100%" role="img" aria-label="Eval return versus env samples for six panel configurations"></svg>
+  <p class="note">Each point is a 10-episode eval, so ±0.1 is noise. Lines show the logged points (about every 190–250 samples; the control's points are the ones reported earlier). Hover a point for its value. The table below has the same numbers.</p>
+</div>
+
+<h2>Summary table</h2>
+<div class="card scroll"><table id="summary"></table></div>
+
+<h2>Configurations</h2>
+<div class="card scroll"><table>
+<tr><th>Run</th><th class="num">Imagined horizon</th><th class="num">Real rollouts / round</th><th class="num">Imagined share</th><th>Note</th></tr>
+<tr><td>control</td><td class="num">8</td><td class="num">0</td><td class="num">100%</td><td>Earlier run, before the fix; same code path as the default config</td></tr>
+<tr><td>imag_h2</td><td class="num">2</td><td class="num">0</td><td class="num">100%</td><td></td></tr>
+<tr><td>mix80_h2</td><td class="num">2</td><td class="num">8 × 4 steps</td><td class="num">80%</td><td>Real steps are charged to the sample budget</td></tr>
+<tr><td>mix50_h2</td><td class="num">2</td><td class="num">8 × 4 steps</td><td class="num">50%</td><td></td></tr>
+<tr><td>mix50_h8</td><td class="num">8</td><td class="num">8 × 4 steps</td><td class="num">50%</td><td>Logged as <code>mix50_h4</code> in the sweep (its real horizon is 4; imagined is 8)</td></tr>
+<tr><td>ramp50</td><td class="num">8</td><td class="num">8 × 4 steps</td><td class="num">0% → 50% over 3,000 samples</td><td>Starts as real-data PPO</td></tr>
+</table></div>
+
+<h2>Where this depends on environment simplicity</h2>
+<p>Empty-5x5 has dense, short-horizon reward and a near-deterministic world, so a small judge ensemble fits it in a few hundred samples (judge disagreement was already ~5e-4). DoorKey needs a key, a door and a far goal: sparse reward, longer credit assignment, and a world with discrete state changes that judges find harder to fit. What we have so far:</p>
+<div class="card scroll"><table>
+<tr><th>Env</th><th>PPO</th><th>Panel</th><th>Status</th></tr>
+<tr><td>Empty-5x5</td><td>~0.77 at ~20k samples</td><td>0.5–0.7 at 1–4k (horizon 2)</td><td><span class="tag">measured, 1 seed</span></td></tr>
+<tr><td>DoorKey-5x5</td><td>~0.7 asymptote, 0.49 at 100k, 0.60 at 220k, 0.75 at 296k</td><td>0.0 at 8k (old settings, horizon 8)</td><td><span class="tag">panel not yet re-run</span></td></tr>
+<tr><td>DoorKey-8x8</td><td>not run</td><td>not run</td><td><span class="tag">planned</span></td></tr>
+</table></div>
+<p class="note">The 80%-of-asymptote H1 threshold only works once PPO's asymptote is measured, which it now is for DoorKey-5x5 but not for Empty-5x5.</p>
+
+<h2>Ablations to mix in next</h2>
+<p>Ordered by how much each would change what we believe. Each is a one-line config change or a small code change on the existing trainer.</p>
+<div class="card scroll"><table>
+<tr><th>#</th><th>Ablation</th><th>Question it answers</th><th>Cost</th></tr>
+<tr><td>1</td><td class="wrap"><b>Horizon sweep</b>: 1, 2, 4, 8 (imagination only)</td><td class="wrap">Is there a smooth degradation, or a cliff? Confirms the main lever.</td><td>config</td></tr>
+<tr><td>2</td><td class="wrap"><b>Entropy bonus</b>: 0.01 vs 0.05 at horizon 8</td><td class="wrap">Separates "model error" from "entropy collapse" as the cause of the zero.</td><td>config</td></tr>
+<tr><td>3</td><td class="wrap"><b>Seeds</b>: 3–5 on the best two configs</td><td class="wrap">Current curves are one seed with 10-episode evals; the dip in imag_h2 may be noise.</td><td>time</td></tr>
+<tr><td>4</td><td class="wrap"><b>Pessimism penalty</b>: subtract k × judge disagreement from imagined reward</td><td class="wrap">Uses the panel's own uncertainty to stop the policy exploiting model errors (the H3 story, in small).</td><td>small code</td></tr>
+<tr><td>5</td><td class="wrap"><b>Competence weights vs uniform average</b></td><td class="wrap">Is the anchor-based weighting earning its place?</td><td>small code</td></tr>
+<tr><td>6</td><td class="wrap"><b>Disagreement queries vs random queries</b> (anchor_frac 1.0)</td><td class="wrap">Is active querying the source of the sample efficiency?</td><td>config</td></tr>
+<tr><td>7</td><td class="wrap"><b>Judge count</b>: 1, 2, 4, 8, 16</td><td class="wrap">How much of the effect needs a panel rather than a single model?</td><td>config</td></tr>
+<tr><td>8</td><td class="wrap"><b>Judge refit budget</b>: judge_steps 25 / 100 / 400</td><td class="wrap">Is the model under-trained or over-trained between rounds?</td><td>config</td></tr>
+<tr><td>9</td><td class="wrap"><b>Imagined start states</b>: whole pool vs recent states only</td><td class="wrap">Imagining from states the policy actually visits may matter more on harder envs.</td><td>small code</td></tr>
+<tr><td>10</td><td class="wrap"><b>PPO epochs on imagined data</b>: 1 / 2 / 4</td><td class="wrap">Over-optimizing on a fixed imagined batch is another route to exploitation.</td><td>config</td></tr>
+<tr><td>11</td><td class="wrap"><b>Env ladder</b>: Empty-5x5, Empty-8x8, DoorKey-5x5, DoorKey-8x8</td><td class="wrap">Where does the best config stop working? This is the "depends on simplicity" axis.</td><td>time</td></tr>
+</table></div>
+<p class="note">Suggested pairing: run 1+2 together on Empty-5x5 (cheap, ~2 min each), then 3, then carry the winner to DoorKey-5x5 with 4 and 9.</p>
+</main>
+<div id="tip"></div>
+<script>
+const S = [
+ {k:"control",  c:"--s5", label:"control (h8, all imagined)", d:[[320,.33],[1664,.48],[2112,.58],[2560,.02],[3456,0],[4000,0]], dash:"5 4"},
+ {k:"imag_h2",  c:"--s1", label:"imag_h2",  d:[[320,.16],[576,.26],[832,.68],[1088,.72],[1344,.49],[1600,.48],[1856,.35],[2112,.35],[2368,.36],[2624,.48],[2880,.39],[3136,.52],[3392,.68],[3648,.67],[3904,.54],[4000,.51]]},
+ {k:"mix80_h2", c:"--s3", label:"mix80_h2", d:[[352,.02],[544,.11],[736,.32],[927,.40],[1117,.33],[1307,.26],[1499,.37],[1691,.27],[1882,.50],[2072,.50],[2264,.53],[2455,.57],[2647,.53],[2839,.58],[3027,.48],[3219,.60],[3410,.59],[3600,.66],[3789,.64],[3978,.53],[4000,.54]]},
+ {k:"mix50_h2", c:"--s2", label:"mix50_h2", d:[[352,.22],[544,.10],[733,.20],[924,.34],[1110,.24],[1302,.35],[1494,.24],[1683,.12],[1869,.36],[2059,.38],[2250,.40],[2437,.48],[2626,.47],[2818,.51],[3007,.47],[3196,.48],[3387,.69],[3579,.49],[3767,.65],[3957,.57],[4000,.68]]},
+ {k:"mix50_h8", c:"--s4", label:"mix50_h8", d:[[352,.07],[542,.17],[734,.15],[925,.17],[1117,.17],[1309,.19],[1498,.20],[1687,.27],[1879,.33],[2066,.33],[2258,.19],[2450,.34],[2641,.19],[2830,.19],[3020,.23],[3211,.23],[3403,.32],[3592,.26],[3781,.18],[3973,.08],[4000,.36]]},
+ {k:"ramp50",   c:"--s6", label:"ramp50 (h8)", d:[[352,.13],[542,0],[734,.06],[925,.18],[1117,.12],[1309,.16],[1500,.16],[1690,.07],[1882,.16],[2074,.23],[2266,.22],[2458,.13],[2647,.21],[2839,.14],[3031,.28],[3223,.24],[3415,.24],[3607,.32],[3798,.39],[3988,.33],[4000,.37]]},
+];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const W=900,H=380,L=44,R=130,T=14,B=34, X0=0,X1=4000, px=x=>L+(x-X0)/(X1-X0)*(W-L-R), py=y=>T+(1-y/0.8)*(H-T-B);
+const tip=document.getElementById("tip");
+function draw(){
+  const svg=document.getElementById("chart"); let h="";
+  for(let y=0;y<=0.8001;y+=0.2){h+=`<line x1="${L}" x2="${W-R}" y1="${py(y)}" y2="${py(y)}" stroke="${css('--grid')}"/><text x="${L-8}" y="${py(y)+4}" text-anchor="end">${y.toFixed(1)}</text>`;}
+  for(let x=0;x<=4000;x+=1000){h+=`<text x="${px(x)}" y="${H-12}" text-anchor="middle">${x.toLocaleString()}</text>`;}
+  h+=`<line x1="${L}" x2="${W-R}" y1="${py(0)}" y2="${py(0)}" stroke="${css('--axis')}"/><text x="${(L+W-R)/2}" y="${H-0}" text-anchor="middle">env samples</text>`;
+  S.forEach(s=>{
+    const col=css(s.c), pts=s.d.map(p=>`${px(p[0])},${py(p[1])}`).join(" ");
+    h+=`<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" ${s.dash?`stroke-dasharray="${s.dash}"`:""}/>`;
+    const e=s.d[s.d.length-1];
+    s.d.forEach(p=>{h+=`<circle cx="${px(p[0])}" cy="${py(p[1])}" r="9" fill="transparent" data-k="${s.k}" data-x="${p[0]}" data-y="${p[1]}"/><circle cx="${px(p[0])}" cy="${py(p[1])}" r="2.5" fill="${col}" stroke="${css('--surface')}" stroke-width="1.5" pointer-events="none"/>`;});
+    s._lab={y:py(e[1]),col};
+  });
+  // direct labels, nudged apart
+  const labs=[...S].sort((a,b)=>a._lab.y-b._lab.y); let last=-99;
+  labs.forEach(s=>{let y=Math.max(s._lab.y,last+14); last=y; h+=`<text class="lab" x="${W-R+8}" y="${y+4}" style="fill:${css('--ink')}"><tspan fill="${s._lab.col}">●</tspan> ${s.k}</text>`;});
+  svg.innerHTML=h;
+  svg.querySelectorAll("circle[data-k]").forEach(c=>{
+    c.onmousemove=e=>{tip.style.display="block";tip.style.left=e.clientX+12+"px";tip.style.top=e.clientY+12+"px";tip.innerHTML=`<b>${c.dataset.k}</b><br>${(+c.dataset.x).toLocaleString()} samples → return ${(+c.dataset.y).toFixed(2)}`};
+    c.onmouseleave=()=>tip.style.display="none";
+  });
+}
+function legend(){document.getElementById("legend").innerHTML=S.map(s=>`<span><i style="background:${css(s.c)}"></i>${s.label}</span>`).join("");}
+function table(){
+  let h=`<tr><th>Run</th><th class="num">Peak return</th><th class="num">Peak at (samples)</th><th class="num">Lowest after peak</th><th class="num">Mean of last 5 points</th><th class="num">Last logged</th></tr>`;
+  S.forEach(s=>{
+    let pi=0; s.d.forEach((p,i)=>{if(p[1]>s.d[pi][1])pi=i});
+    const after=s.d.slice(pi+1).map(p=>p[1]), low=after.length?Math.min(...after):s.d[pi][1];
+    const m=s.d.slice(-5).reduce((a,p)=>a+p[1],0)/5, e=s.d[s.d.length-1];
+    h+=`<tr><td><span class="sw" style="background:${css(s.c)}"></span>${s.k}</td><td class="num">${s.d[pi][1].toFixed(2)}</td><td class="num">${s.d[pi][0].toLocaleString()}</td><td class="num">${low.toFixed(2)}</td><td class="num">${m.toFixed(2)}</td><td class="num">${e[1].toFixed(2)}</td></tr>`;
+  });
+  document.getElementById("summary").innerHTML=h;
+}
+function render(){draw();legend();table();}
+render();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+</script>
+</body>
+</html>

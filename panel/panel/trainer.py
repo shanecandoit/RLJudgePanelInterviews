@@ -40,6 +40,10 @@ class PanelConfig:
     judge_lr: float = 1e-3
     imag_batch: int = 256
     imag_horizon: int = 8
+    real_starts: int = 0           # real-env policy rollouts per round (charged); 0 = imagination only
+    real_horizon: int = 4
+    imag_frac: float = 1.0         # target share of imagined samples in each PPO batch (1.0 = all imagined)
+    ramp_samples: int = 0          # env samples over which the imagined share rises from 0 to imag_frac
     pool_size: int = 1000
     ppo: PPOConfig = field(default_factory=lambda: PPOConfig(epochs=2))
 
@@ -72,6 +76,58 @@ def imagine(model: ActorCritic, judges: JudgeEnsemble, start_obs: torch.Tensor, 
     keep = ALIVE.reshape(-1) > 0.5
     flat = lambda x: x.reshape(horizon * B, *x.shape[2:])[keep]
     return {"obs": flat(O), "act": flat(A), "logp": flat(LP), "adv": flat(adv), "ret": flat(ret)}
+
+
+@torch.no_grad()
+def real_rollouts(model: ActorCritic, oracle: Oracle, replay: Replay, counter: SampleCounter, starts, horizon: int,
+                  gamma: float, lam: float, budget: int, device):
+    """Roll the policy through the true env from stored snapshots (each step charged).
+
+    Real transitions also go into the replay so the judges learn from them. Returns a PPO batch or None.
+    """
+    rows = []
+    for o, snap in starts:
+        traj = []
+        for _ in range(horizon):
+            if counter.n >= budget:
+                break
+            logits, v = model(torch.as_tensor(o, device=device).unsqueeze(0))
+            dist = Categorical(logits=logits)
+            a = dist.sample()
+            o2, r, term, trunc, nxt = oracle.query(snap, int(a))
+            replay.add_transition(o, int(a), r, o2, term)
+            traj.append((o, int(a), float(dist.log_prob(a)), float(v), r, float(term or trunc)))
+            if term or trunc:
+                break
+            o, snap = o2, nxt
+            replay.add_state(o, snap)
+        if traj:
+            last_v = torch.zeros(1, device=device) if traj[-1][5] else model(torch.as_tensor(o, device=device).unsqueeze(0))[1]
+            rows.append((traj, last_v))
+    if not rows:
+        return None
+    out = {k: [] for k in ("obs", "act", "logp", "adv", "ret")}
+    for traj, last_v in rows:
+        o, a, lp, v, r, d = (torch.as_tensor(np.array(x), dtype=t, device=device) for x, t in zip(
+            zip(*traj), (torch.float32, torch.long, torch.float32, torch.float32, torch.float32, torch.float32)))
+        adv, ret = compute_gae(r.unsqueeze(1), v.unsqueeze(1), d.unsqueeze(1), last_v, gamma, lam)
+        for k, x in zip(out, (o, a, lp, adv.squeeze(1), ret.squeeze(1))):
+            out[k].append(x)
+    return {k: torch.cat(x) for k, x in out.items()}
+
+
+def mix_batches(real, imag, frac: float, gen: torch.Generator):
+    """Combine real and imagined PPO batches so imagined samples are `frac` of the total (capped by supply)."""
+    if real is None or real["obs"].shape[0] == 0:
+        return imag
+    if frac >= 1.0:
+        return imag
+    n_imag = imag["obs"].shape[0]
+    want = int(round(real["obs"].shape[0] * frac / max(1.0 - frac, 1e-6)))
+    if want < n_imag:
+        keep = torch.randperm(n_imag, generator=gen)[:want].to(imag["obs"].device)
+        imag = {k: v[keep] for k, v in imag.items()}
+    return {k: torch.cat([real[k], imag[k]]) for k in real}
 
 
 def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[PanelConfig] = None,
@@ -140,6 +196,12 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
         starts = torch.as_tensor(np.stack([replay.pool_obs[i] for i in
                                            rng.choice(len(replay.pool_obs), cfg.imag_batch)]), device=dev)
         batch = imagine(model, judges, starts, cfg.imag_horizon, cfg.ppo.gamma, cfg.ppo.gae_lambda)
+        if cfg.real_starts > 0:
+            frac = cfg.imag_frac * (min(1.0, counter.n / cfg.ramp_samples) if cfg.ramp_samples else 1.0)
+            ridx = rng.choice(len(replay.pool_snaps), cfg.real_starts)
+            real = real_rollouts(model, oracle, replay, counter, [(replay.pool_obs[i], replay.pool_snaps[i]) for i in ridx],
+                                 cfg.real_horizon, cfg.ppo.gamma, cfg.ppo.gae_lambda, total_steps, dev)
+            batch = mix_batches(real, batch, frac, gen)
         if batch["obs"].shape[0] > 0:
             policy_steps += ppo_update(model, opt, batch, cfg.ppo, gen)["grad_steps"]
         train_s += time.perf_counter() - t0
