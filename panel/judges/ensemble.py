@@ -100,3 +100,17 @@ def mean_pairwise_error_correlation(err: np.ndarray) -> float:
     c = np.nan_to_num(np.corrcoef(err), nan=0.0)
     J = c.shape[0]
     return float((c.sum() - np.trace(c)) / (J * (J - 1)))
+
+
+def _ranks(x: np.ndarray) -> np.ndarray:
+    """Average ranks, so tied values share a rank."""
+    _, inv, counts = np.unique(x, return_inverse=True, return_counts=True)
+    ends = np.cumsum(counts)
+    return ((ends - (counts - 1) / 2.0) - 1)[inv]
+
+
+def spearman(a: np.ndarray, b: np.ndarray) -> float:
+    """Rank correlation; NaN if fewer than 3 points or either side is constant."""
+    if len(a) < 3 or np.ptp(a) == 0 or np.ptp(b) == 0:
+        return float("nan")
+    return float(np.corrcoef(_ranks(np.asarray(a)), _ranks(np.asarray(b)))[0, 1])

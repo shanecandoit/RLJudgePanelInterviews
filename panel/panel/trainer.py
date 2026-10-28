@@ -23,7 +23,7 @@ from torch.distributions import Categorical
 from panel.agent.ppo import ActorCritic, PPOConfig, compute_gae, evaluate, pick_device, ppo_update
 from panel.analysis.runlog import RunLog
 from panel.envs.counting import Oracle, SampleCounter
-from panel.judges.ensemble import JudgeEnsemble, mean_pairwise_error_correlation
+from panel.judges.ensemble import JudgeEnsemble, mean_pairwise_error_correlation, spearman
 from panel.panel.query import select_queries
 from panel.panel.replay import Replay
 
@@ -187,10 +187,13 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
             replay.add_state(o2, nxt)
 
         a_obs, a_act, a_rew, a_next = (np.array(x) for x in zip(*anchor_rows))
-        err = judges.update_competence(torch.as_tensor(a_obs, dtype=torch.float32, device=dev),
-                                       torch.as_tensor(a_act, dtype=torch.long, device=dev),
-                                       torch.as_tensor(a_rew, dtype=torch.float32, device=dev),
-                                       torch.as_tensor(a_next, dtype=torch.float32, device=dev))
+        a_obs_t, a_next_t = (torch.as_tensor(x, dtype=torch.float32, device=dev) for x in (a_obs, a_next))
+        a_act_t, a_rew_t = torch.as_tensor(a_act, dtype=torch.long, device=dev), torch.as_tensor(a_rew, dtype=torch.float32, device=dev)
+        with torch.no_grad():  # panel calibration on anchors, before judges train on them
+            a_dis = judges.disagreement(a_obs_t, a_act_t)
+            mixed = judges.mix(judges.predict(a_obs_t, a_act_t))
+            cons = ((mixed["next_obs"] - a_next_t) ** 2).mean(-1) + (mixed["reward"] - a_rew_t) ** 2
+        err = judges.update_competence(a_obs_t, a_act_t, a_rew_t, a_next_t)
         judges.fit(*replay.tensors(dev), cfg.judge_steps, cfg.judge_batch, gen)
 
         starts = torch.as_tensor(np.stack([replay.pool_obs[i] for i in
@@ -210,5 +213,9 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
                 grad_steps=policy_steps + judges.grad_steps,
                 eval_return=evaluate(model, env_id, eval_episodes),
                 mean_disagreement=float(scores.mean()), anchor_err=float(err.mean()),
-                err_corr=mean_pairwise_error_correlation(err), n_real=len(replay))
+                err_corr=mean_pairwise_error_correlation(err), n_real=len(replay),
+                anchor_disagree=float(a_dis.mean()), consensus_err=float(cons.mean()),
+                calib=float(a_dis.mean() / (cons.mean() + 1e-12)),  # ~1 calibrated, << 1 judges too alike
+                rank_corr=spearman(a_dis.cpu().numpy(), cons.cpu().numpy()),
+                n_eff=float(1.0 / (judges.weights ** 2).sum()))
     return model, judges, log

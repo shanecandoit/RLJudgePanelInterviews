@@ -1,5 +1,7 @@
-torch>=2.0
 gymnasium>=0.29,<1.0
+matplotlib
 minigrid>=2.3
 numpy<2
+pandas
 pytest>=7
+torch>=2.0
