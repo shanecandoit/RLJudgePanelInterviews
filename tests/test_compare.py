@@ -55,3 +55,12 @@ def test_compare_median_over_seeds_counts_failures_as_infinite():
     good, bad = make_log("panel", [1, 1, 1, 1, 1], 10), make_log("panel", [0] * 5, 10)
     assert compare(ppo, [good, good, bad])["env_steps"]["panel"] == 10     # 2 of 3 reached -> median finite
     assert compare(ppo, [good, bad, bad])["env_steps"]["panel"] is None    # 1 of 3 -> median infinite
+
+
+def test_compare_refuses_to_judge_h1_when_ppo_never_learned():
+    ppo = [make_log("ppo", [0.0] * 10, 100)]
+    panel = [make_log("panel", [0.0] * 10, 10)]
+    r = compare(ppo, panel)
+    assert not r["valid"]
+    t = format_table(r)
+    assert "not measurable" in t and "PASS" not in t and "FAIL" not in t

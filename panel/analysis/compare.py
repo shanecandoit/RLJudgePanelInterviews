@@ -9,6 +9,7 @@ from panel.analysis.runlog import RunLog
 
 METRICS = ("env_steps", "iteration", "wall_s")
 H1_SAMPLE_RATIO = 5.0
+MIN_ASYMPTOTE = 0.1  # below this PPO has not learned the task; a threshold of 80% of ~0 is meaningless
 
 
 def asymptote(log: RunLog, last_frac: float = 0.2) -> float:
@@ -33,7 +34,7 @@ def _median(vals: Sequence[Optional[float]]) -> Optional[float]:
 def compare(ppo_logs: List[RunLog], panel_logs: List[RunLog], frac: float = 0.8) -> Dict:
     asym = float(np.mean([asymptote(l) for l in ppo_logs]))
     thr = frac * asym
-    out: Dict = {"asymptote": asym, "threshold": thr, "frac": frac}
+    out: Dict = {"asymptote": asym, "threshold": thr, "frac": frac, "valid": asym >= MIN_ASYMPTOTE}
     for m in METRICS:
         p = [first_reaching(l, thr, m) for l in ppo_logs]
         q = [first_reaching(l, thr, m) for l in panel_logs]
@@ -55,6 +56,9 @@ def format_table(res: Dict) -> str:
         lines.append(f"{m:<10}{f(r['ppo']):>12}{f(r['panel']):>12}{ratio:>12}"
                      f"{r['ppo_reached']:>12.0%}/{r['panel_reached']:.0%}")
     ratio = res["env_steps"]["ratio"]
+    if not res["valid"]:
+        lines.append(f"H1 not measurable: PPO asymptote < {MIN_ASYMPTOTE}, i.e. the baseline has not learned this task")
+        return "\n".join(lines)
     lines.append(f"H1 (>= {H1_SAMPLE_RATIO:.0f}x fewer samples than PPO): "
                  + ("not measurable (a method never reached the threshold)" if ratio is None
                     else "PASS" if ratio >= H1_SAMPLE_RATIO else "FAIL"))
