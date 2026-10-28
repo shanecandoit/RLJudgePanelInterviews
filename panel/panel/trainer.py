@@ -145,7 +145,7 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
     model = ActorCritic(oracle.obs_dim, oracle.n_actions, cfg.ppo.hidden).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=cfg.ppo.lr, eps=1e-5)
     log = RunLog("panel", env_id, seed)
-    t0 = time.perf_counter()
+    t0, c0 = time.perf_counter(), time.process_time()
 
     # seed data: random-policy real steps
     obs, snap = oracle.reset(seed=seed)
@@ -160,9 +160,9 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
             obs, snap = o2, nxt
         replay.add_state(obs, snap)
 
-    train_s, policy_steps, it = time.perf_counter() - t0, 0, 0
+    train_s, cpu_s, policy_steps, it = time.perf_counter() - t0, time.process_time() - c0, 0, 0
     while counter.n < total_steps:
-        t0 = time.perf_counter()
+        t0, c0 = time.perf_counter(), time.process_time()
         n_query = min(cfg.queries_per_round, total_steps - counter.n)
         n_cand = max(cfg.n_candidates, n_query)
         idx = rng.choice(len(replay.pool_snaps), n_cand, replace=len(replay.pool_snaps) < n_cand)
@@ -208,8 +208,9 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
         if batch["obs"].shape[0] > 0:
             policy_steps += ppo_update(model, opt, batch, cfg.ppo, gen)["grad_steps"]
         train_s += time.perf_counter() - t0
+        cpu_s += time.process_time() - c0
         it += 1
-        log.add(iteration=it, env_steps=counter.n, wall_s=train_s,
+        log.add(iteration=it, env_steps=counter.n, wall_s=train_s, cpu_s=cpu_s,
                 grad_steps=policy_steps + judges.grad_steps,
                 eval_return=evaluate(model, env_id, eval_episodes),
                 mean_disagreement=float(scores.mean()), anchor_err=float(err.mean()),

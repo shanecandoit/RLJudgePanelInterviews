@@ -2,8 +2,9 @@
 
     python -m panel.analysis.sweep_report runs/sweep [--ref MiniGrid-DoorKey-5x5-v0=0.7]
 
---ref gives a PPO asymptote per env; the H1 threshold is 80% of it. Without one, the threshold is 80% of the
-90th-percentile peak across the sweep for that env (printed as "relative"), which only ranks configs.
+The H1 threshold is 80% of the PPO asymptote: taken from the sweep's own PPO jobs, or overridden with --ref.
+With neither (or a PPO that never learned, asymptote < 0.1) it is 80% of the 90th-percentile peak across the
+sweep for that env, printed as "relative", which only ranks configs.
 """
 from __future__ import annotations
 
@@ -36,26 +37,56 @@ def run_metrics(rec: dict, thr: float, budget: float) -> dict:
     peak, final = float(y.max()), float(y[-3:].mean())
     hit = np.nonzero(y >= thr)[0]
     after = lambda k: float(np.nanmedian([r[k] for r in rows[3:]] or [np.nan])) if len(rows) > 3 else np.nan
-    return {"id": rec["id"], "env": rec["env"], **rec["config"],
+    return {"id": rec["id"], "env": rec["env"], "group": rec.get("group", "random"), "seed": rec["seed"], **rec["config"],
             "auc": float(np.interp(grid, x, y, left=0.0).mean()), "peak": peak, "final": final,
             "collapsed": bool(peak > 0.1 and final < 0.3 * peak),
             "to_thr": float(x[hit[0]]) if len(hit) else np.nan, "wall_s": float(rows[-1]["wall_s"]),
-            **{k: after(k) for k in DIAG}}
+            "cpu_s": float(rows[-1].get("cpu_s", np.nan)), **{k: after(k) for k in DIAG}}
+
+
+def ppo_asymptotes(recs: List[dict]) -> Dict[str, float]:
+    out: Dict[str, List[float]] = {}
+    for r in recs:
+        if r.get("kind") == "ppo" and "rows" in r:
+            y = np.array([x["eval_return"] for x in r["rows"]], float)
+            out.setdefault(r["env"], []).append(float(y[-max(1, int(round(len(y) * 0.2))):].mean()))
+    return {e: float(np.mean(v)) for e, v in out.items()}
 
 
 def build_frame(recs: List[dict], refs: Dict[str, float]):
     df, thresholds = [], {}
+    own = ppo_asymptotes(recs)
     for env in sorted({r["env"] for r in recs}):
-        er = [r for r in recs if r["env"] == env and "rows" in r]
+        er = [r for r in recs if r["env"] == env and "rows" in r and r.get("kind", "panel") == "panel"]
+        if not er:
+            continue
         budget = max(r["rows"][-1]["env_steps"] for r in er)
-        if env in refs:
-            thr, how = 0.8 * refs[env], f"80% of PPO asymptote {refs[env]:.2f}"
+        ref = refs.get(env, own.get(env))
+        if ref is not None and ref >= 0.1:
+            thr, how = 0.8 * ref, f"80% of PPO asymptote {ref:.2f}" + ("" if env in refs else " (this sweep's PPO jobs)")
         else:
             thr = 0.8 * float(np.percentile([max(x["eval_return"] for x in r["rows"]) for r in er], 90))
-            how = "relative: 80% of the sweep's 90th-percentile peak (no --ref)"
+            how = "relative: 80% of the sweep's 90th-percentile peak (" + (
+                f"PPO asymptote {ref:.2f} < 0.1, baseline did not learn)" if ref is not None else "no PPO reference)")
         thresholds[env] = (thr, how, budget)
         df += [run_metrics(r, thr, budget) for r in er]
     return pd.DataFrame(df), thresholds
+
+
+def replicate_table(d: pd.DataFrame) -> str:
+    """Per named config over seeds: mean +- sd. The pooled sd is the noise floor for comparing any two configs."""
+    g = d.groupby("group")
+    t = g.agg(seeds=("auc", "size"), auc=("auc", "mean"), auc_sd=("auc", "std"), peak=("peak", "mean"),
+              peak_sd=("peak", "std"), reached=("to_thr", lambda s: s.notna().mean()), collapsed=("collapsed", "mean"),
+              wall_s=("wall_s", "median"), cpu_s=("cpu_s", "median"), calib=("calib", "median"),
+              rank_corr=("rank_corr", "median"), n_eff=("n_eff", "median")).reset_index()
+    var = g["auc"].var().dropna()
+    n = g["auc"].size()[var.index]
+    pooled = float(np.sqrt(((n - 1) * var).sum() / (n - 1).sum())) if len(var) else float("nan")
+    note = (f"pooled AUC sd across seeds = {pooled:.3f}; two configs with {int(n.mean())} seeds each differ "
+            f"meaningfully only if their mean AUCs are > {2 * pooled * np.sqrt(2 / n.mean()):.3f} apart"
+            if len(var) else "need >= 2 seeds per config for a noise estimate")
+    return t.to_string(index=False) + "\n" + note
 
 
 def marginals(d: pd.DataFrame) -> pd.DataFrame:
@@ -63,7 +94,7 @@ def marginals(d: pd.DataFrame) -> pd.DataFrame:
     for f in FACTORS:
         g = d.groupby(f).agg(n=("auc", "size"), auc=("auc", "mean"), peak=("peak", "mean"),
                              reached=("to_thr", lambda s: s.notna().mean()), to_thr_med=("to_thr", "median"),
-                             collapsed=("collapsed", "mean"), wall_s=("wall_s", "median"),
+                             collapsed=("collapsed", "mean"), wall_s=("wall_s", "median"), cpu_s=("cpu_s", "median"),
                              calib=("calib", "median"), rank_corr=("rank_corr", "median"), n_eff=("n_eff", "median"))
         g.insert(0, "factor", f)
         g.index.name = "value"
@@ -102,20 +133,24 @@ def report(out_dir: str, refs: Optional[Dict[str, float]] = None, top: int = 10)
     recs = load(out_dir)
     errs = [r for r in recs if "error" in r]
     df, thr = build_frame(recs, refs or {})
-    lines = [f"{len(df)} runs ({len(errs)} failed)"]
-    cols = ["id", *FACTORS, "auc", "peak", "final", "to_thr", "wall_s", "collapsed", "calib", "rank_corr", "n_eff"]
+    lines = [f"{len(df)} panel runs, {sum(r.get('kind') == 'ppo' for r in recs)} PPO runs ({len(errs)} failed)"]
+    cols = ["id", *FACTORS, "auc", "peak", "final", "to_thr", "wall_s", "cpu_s", "collapsed", "calib", "rank_corr", "n_eff"]
     for env, (t, how, budget) in thr.items():
-        d = df[df["env"] == env]
+        d_all = df[df["env"] == env]
+        d, rep = d_all[d_all["group"] == "random"], d_all[d_all["group"] != "random"]
         lines += ["", f"=== {env}  budget {budget:,.0f} samples; threshold {t:.2f} ({how}) ===",
-                  f"reached threshold: {d['to_thr'].notna().mean():.0%}   collapsed: {d['collapsed'].mean():.0%}",
-                  "", f"-- top {top} runs by AUC", d.sort_values("auc", ascending=False).head(top)[cols].to_string(index=False),
-                  "", "-- marginals (mean over all other factors; calib/rank_corr/n_eff are medians)",
-                  marginals(d).to_string(index=False)]
-        ok = d.dropna(subset=["rank_corr"])
-        if len(ok) > 4:
-            lines += ["", "-- Spearman across runs: " + ", ".join(
-                f"{k} vs auc {ok[k].rank().corr(ok['auc'].rank()):+.2f}" for k in DIAG)]
-        scatter(d, env, budget, t, os.path.join(out_dir, f"sweep_{env.split('-', 1)[-1]}.png"))
+                  f"reached threshold: {d_all['to_thr'].notna().mean():.0%}   collapsed: {d_all['collapsed'].mean():.0%}"]
+        if len(rep):
+            lines += ["", "-- replicates (named configs over seeds)", replicate_table(rep)]
+        if len(d):
+            lines += ["", f"-- top {top} random runs by AUC", d.sort_values("auc", ascending=False).head(top)[cols].to_string(index=False),
+                      "", "-- marginals over random runs (mean over other factors; time/calib/rank_corr/n_eff are medians)",
+                      marginals(d).to_string(index=False)]
+            ok = d.dropna(subset=["rank_corr"])
+            if len(ok) > 4:
+                lines += ["", "-- Spearman across random runs: " + ", ".join(
+                    f"{k} vs auc {ok[k].rank().corr(ok['auc'].rank()):+.2f}" for k in DIAG)]
+            scatter(d, env, budget, t, os.path.join(out_dir, f"sweep_{env.split('-', 1)[-1]}.png"))
     text = "\n".join(lines)
     with open(os.path.join(out_dir, "sweep_tables.txt"), "w") as f:
         f.write(text + "\n")

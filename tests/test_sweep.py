@@ -46,5 +46,34 @@ def test_report_on_synthetic_results(tmp_path):
                     for i in range(15)]
             f.write(json.dumps({**r, "rows": rows}) + "\n")
     text = report(str(tmp_path))
-    assert "marginals" in text and "top 10 runs" in text
+    assert "marginals" in text and "top 10 random runs" in text
     assert list(tmp_path.glob("sweep_*.png"))
+
+
+def test_build_jobs_order_and_unique_ids():
+    from panel.experiments.h1_sweep import ENVS, build_jobs
+    envs = ["MiniGrid-Empty-5x5-v0", "MiniGrid-Empty-8x8-v0"]
+    jobs = build_jobs(envs, 3, 0, ["base"], [1, 2], 1, dict(ENVS), 10)
+    assert len({j["id"] for j in jobs}) == len(jobs) == 2 + 2 * (2 + 3)
+    assert [j["kind"] for j in jobs[:2]] == ["ppo", "ppo"]            # baselines first
+    assert {j["env"] for j in jobs[2:6]} == set(envs)                 # then round-robin across envs
+    assert all(j["steps"] > 0 for j in jobs)
+
+
+def test_report_uses_ppo_asymptote_and_replicates(tmp_path):
+    rng = np.random.default_rng(1)
+    mk = lambda i, y, extra: {"iteration": i, "env_steps": 100 * (i + 1), "wall_s": float(i), "cpu_s": float(i),
+                              "grad_steps": i, "eval_return": y, **extra}
+    diag = {"calib": 0.2, "rank_corr": 0.3, "n_eff": 2.0}
+    env = "MiniGrid-Empty-5x5-v0"
+    cfg = {"ent_coef": 0.01, "imag_horizon": 2, "n_judges": 4, "imag_frac": 1.0}
+    with open(tmp_path / "results.jsonl", "w") as f:
+        f.write(json.dumps({"id": "ppo", "kind": "ppo", "group": "ppo", "env": env, "seed": 0, "config": {},
+                            "rows": [mk(i, 0.8, {}) for i in range(10)]}) + "\n")
+        for s in range(4):
+            rows = [mk(i, float(min(0.8, 0.1 * i * (0.8 + 0.4 * rng.random()))), diag) for i in range(15)]
+            f.write(json.dumps({"id": f"r{s}", "kind": "panel", "group": "base", "env": env, "seed": s,
+                                "config": cfg, "rows": rows}) + "\n")
+    text = report(str(tmp_path))
+    assert "80% of PPO asymptote 0.80" in text
+    assert "pooled AUC sd" in text and "cpu_s" in text
