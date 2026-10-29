@@ -93,6 +93,10 @@ panel/
 
 ## Algorithm / environment / judge sweep
 
+The living [H1 learnings report](reports/H1-learnings.html) separates measured results, open causal questions,
+and the proposed confirmation protocol. Refresh it from saved results with `python -m panel.analysis.h1_learnings`.
+Figures and per-run data exports are saved beside the report in `reports/H1-learnings-assets/`.
+
 `bash run.sh` launches a resumable 99-run experiment with five CPU workers:
 
 - Algorithms: panel PPO, panel Double DQN, and Dyna (panel Double DQN plus one-step imagined updates).

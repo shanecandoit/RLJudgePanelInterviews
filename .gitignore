@@ -1,3 +1,14 @@
 
-# pycache files
+# Python caches and local environments
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local experiment data, checkpoints, progress logs, and process locks.
+# Keep curated reports, exported figures/metrics, and source code in Git.
+runs/
+
+# Browser QA captures can be regenerated; published report figures stay tracked.
+reports/H1-learnings-assets/qa-*.png

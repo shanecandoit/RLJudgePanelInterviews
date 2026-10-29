@@ -1,0 +1,124 @@
+{
+  "generated_at": "2026-10-29T13:42:16.177254-05:00",
+  "nightly_summary": [
+    {
+      "env": "MiniGrid-Empty-5x5-v0",
+      "count": 37,
+      "hit": 21,
+      "late": 3,
+      "collapsed": 9,
+      "threshold": 0.6416850000000001,
+      "budget": 4000
+    },
+    {
+      "env": "MiniGrid-Empty-Random-5x5-v0",
+      "count": 37,
+      "hit": 34,
+      "late": 5,
+      "collapsed": 2,
+      "threshold": 0.6800899999999999,
+      "budget": 6000
+    },
+    {
+      "env": "MiniGrid-Empty-8x8-v0",
+      "count": 37,
+      "hit": 7,
+      "late": 0,
+      "collapsed": 18,
+      "threshold": 0.7520578125,
+      "budget": 8000
+    },
+    {
+      "env": "MiniGrid-LavaGapS5-v0",
+      "count": 37,
+      "hit": 12,
+      "late": 0,
+      "collapsed": 26,
+      "threshold": 0.2260593103448276,
+      "budget": 10000
+    },
+    {
+      "env": "MiniGrid-DoorKey-5x5-v0",
+      "count": 34,
+      "hit": 0,
+      "late": 0,
+      "collapsed": 18,
+      "threshold": 0.4950597966101695,
+      "budget": 20000
+    }
+  ],
+  "algorithm_completed": 46,
+  "algorithm_planned": 99,
+  "sources": [
+    {
+      "path": "runs/nightly/results.jsonl",
+      "bytes": 10029896,
+      "sha256": "7fea1054b90e1b1d6139fb62b4802ac6bfc137d2e4c31a0ae33b0d4a719761af"
+    },
+    {
+      "path": "runs/algo_sweep/results.jsonl",
+      "bytes": 1769074,
+      "sha256": "fa079e2d5a90d60758b5963d82f955e0dc5114b047e9b74150e86021e131b6a8"
+    },
+    {
+      "path": "runs/algo_sweep/manifest.json",
+      "bytes": 72998,
+      "sha256": "7e1aee913ad8072fc73d4e8b7318ca2e48d0bace55168490d54ee663b981e1f9"
+    },
+    {
+      "path": "runs/h1_doorkey5/panel_s0.json",
+      "bytes": 377437,
+      "sha256": "115f7498506a5b87ee210ed9d1d9212ef2dba9bc07af47559185feef0c1f7a2e"
+    },
+    {
+      "path": "runs/h1_doorkey5/panel_s1.json",
+      "bytes": 378254,
+      "sha256": "d3271df554e4eb48e53fc51509d37b86682f23ba1ea0977e9f824be16ba742fe"
+    },
+    {
+      "path": "runs/h1_doorkey5/ppo_s0.json",
+      "bytes": 52596,
+      "sha256": "993a3b3a63e59c5e792dc2d8b94bfff3a4dcb5a1bacd9a45a6b57b4b3d14dcf6"
+    },
+    {
+      "path": "runs/h1_doorkey5/ppo_s1.json",
+      "bytes": 52496,
+      "sha256": "d00aaa624e89cdfce53e43f7c1321024454066bad116394c8da99e9b2da70085"
+    },
+    {
+      "path": "runs/h1_doorkey5/ppo_s2.json",
+      "bytes": 52864,
+      "sha256": "47ac38595be322961cd5bdc18e9d0a02be20916bc67bba5a0977993853ca749d"
+    },
+    {
+      "path": "plan.md",
+      "bytes": 6755,
+      "sha256": "645f6c340057637b12487b1b5a4c0b7dfcc02d209d61f690b245ef65b8c654d8"
+    },
+    {
+      "path": "panel/experiments/algo_sweep.py",
+      "bytes": 7906,
+      "sha256": "388686c995091a562059850c09adc3b414da8e67ef386c218771f04d274ae9c0"
+    },
+    {
+      "path": "panel/panel/trainer.py",
+      "bytes": 11742,
+      "sha256": "ce18ceff65e4ada812e28195e4b855ed4af4d78df12185cd0b56b5fa04f3bac6"
+    },
+    {
+      "path": "panel/agent/dqn.py",
+      "bytes": 8717,
+      "sha256": "81199a06a154be937be8dfada74f0a193335d61f53639b71be73750c0c93b62b"
+    },
+    {
+      "path": "panel/judges/ensemble.py",
+      "bytes": 5671,
+      "sha256": "64efee5b16aaef58d0fc3a57a0adc3e4bc8d78098eed2fcf46852a2ab8e2565a"
+    },
+    {
+      "path": "panel/analysis/h1_learnings.py",
+      "bytes": 48178,
+      "sha256": "a04f2e31e7eaa06be083fc8e5b77db75a6417c0ec811139fd97a7d5429934917"
+    }
+  ]
+}
