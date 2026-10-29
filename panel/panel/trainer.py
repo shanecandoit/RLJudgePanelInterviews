@@ -45,6 +45,7 @@ class PanelConfig:
     imag_frac: float = 1.0         # target share of imagined samples in each PPO batch (1.0 = all imagined)
     ramp_samples: int = 0          # env samples over which the imagined share rises from 0 to imag_frac
     pool_size: int = 1000
+    eval_interval: int = 0        # 0 = every round; otherwise log/evaluate at this sample interval
     ppo: PPOConfig = field(default_factory=lambda: PPOConfig(epochs=2))
 
 
@@ -161,6 +162,7 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
         replay.add_state(obs, snap)
 
     train_s, cpu_s, policy_steps, it = time.perf_counter() - t0, time.process_time() - c0, 0, 0
+    next_eval = cfg.eval_interval
     while counter.n < total_steps:
         t0, c0 = time.perf_counter(), time.process_time()
         n_query = min(cfg.queries_per_round, total_steps - counter.n)
@@ -170,6 +172,8 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
         with torch.no_grad():
             c_act = Categorical(logits=model(c_obs)[0]).sample()
         scores = judges.disagreement(c_obs, c_act).cpu().numpy()
+        if cfg.n_judges == 1:
+            scores = rng.random(n_cand)  # no ensemble variance: uniform query acquisition
         c_act_np = c_act.cpu().numpy()
         top, anchors = select_queries(scores, n_query, cfg.anchor_frac, rng)
 
@@ -210,13 +214,15 @@ def train_panel(env_id: str, total_steps: int, seed: int = 0, cfg: Optional[Pane
         train_s += time.perf_counter() - t0
         cpu_s += time.process_time() - c0
         it += 1
-        log.add(iteration=it, env_steps=counter.n, wall_s=train_s, cpu_s=cpu_s,
-                grad_steps=policy_steps + judges.grad_steps,
-                eval_return=evaluate(model, env_id, eval_episodes),
-                mean_disagreement=float(scores.mean()), anchor_err=float(err.mean()),
-                err_corr=mean_pairwise_error_correlation(err), n_real=len(replay),
-                anchor_disagree=float(a_dis.mean()), consensus_err=float(cons.mean()),
-                calib=float(a_dis.mean() / (cons.mean() + 1e-12)),  # ~1 calibrated, << 1 judges too alike
-                rank_corr=spearman(a_dis.cpu().numpy(), cons.cpu().numpy()),
-                n_eff=float(1.0 / (judges.weights ** 2).sum()))
+        if counter.n >= next_eval or counter.n >= total_steps:
+            log.add(iteration=it, env_steps=counter.n, wall_s=train_s, cpu_s=cpu_s,
+                    grad_steps=policy_steps + judges.grad_steps,
+                    eval_return=evaluate(model, env_id, eval_episodes),
+                    mean_disagreement=float(scores.mean()), anchor_err=float(err.mean()),
+                    err_corr=mean_pairwise_error_correlation(err), n_real=len(replay),
+                    anchor_disagree=float(a_dis.mean()), consensus_err=float(cons.mean()),
+                    calib=float(a_dis.mean() / (cons.mean() + 1e-12)),
+                    rank_corr=spearman(a_dis.cpu().numpy(), cons.cpu().numpy()),
+                    n_eff=float(1.0 / (judges.weights ** 2).sum()))
+            next_eval = counter.n + cfg.eval_interval
     return model, judges, log

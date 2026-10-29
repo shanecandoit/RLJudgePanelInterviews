@@ -1,13 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-# 1. Quick sanity check, a few minutes
-python -m panel.experiments.h1_compare --seeds 1 --ppo-steps 60000 --panel-steps 8000 --out runs/smoke
-
-# 2. Real H1 run on DoorKey-5x5, 3 seeds
-python -m panel.experiments.h1_compare --env MiniGrid-DoorKey-5x5-v0 --seeds 3 --ppo-steps 300000 --panel-steps 100000 --out runs/h1_doorkey5
-
-# 3. The plan's target env (DoorKey-8x8) once step 2 looks sane
-python -m panel.experiments.h1_compare --env MiniGrid-DoorKey-8x8-v0 --seeds 3 --ppo-steps 1000000 --panel-steps 300000 --out runs/h1_doorkey8
-
-# Optional: redo the plot from saved logs, and run the slow PPO learning test
-python -m panel.analysis.plot runs/h1_doorkey5
-python -m pytest -m slow
+# 99 runs: 3 algorithms x 3 environments x 3 judge counts x 3 seeds,
+# plus real-only PPO/DQN baselines once per environment/seed.
+# Equal real-sample budgets: Empty=40k, LavaGap=150k, DoorKey=300k.
+# Stops STARTING jobs after 8 hours; in-flight jobs finish. Run again to resume.
+# Examples:
+#   bash run.sh --dry-run
+#   bash run.sh --hours 0             # finish every remaining run
+#   bash run.sh --steps 384 --seeds 0 --eval-episodes 1 --out runs/algo_smoke
+# Set PYTHON to choose a Python executable. Extra arguments override defaults.
+exec "${PYTHON:-python}" -u -m panel.experiments.algo_sweep \
+  --algos ppo dqn dyna --envs empty5x5 lavagap doorkey \
+  --judges 1 2 4 --seeds 0 1 2 --workers 5 --hours 8 \
+  --out runs/algo_sweep "$@"

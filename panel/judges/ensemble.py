@@ -95,7 +95,7 @@ class JudgeEnsemble:
 
 def mean_pairwise_error_correlation(err: np.ndarray) -> float:
     """Mean off-diagonal correlation of per-sample judge errors (H4 gate). NaN if too few samples."""
-    if err.shape[1] < 3:
+    if err.shape[0] < 2 or err.shape[1] < 3:
         return float("nan")
     c = np.nan_to_num(np.corrcoef(err), nan=0.0)
     J = c.shape[0]

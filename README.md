@@ -91,6 +91,45 @@ panel/
   analysis/      # metrics, plots
 ```
 
+## Algorithm / environment / judge sweep
+
+`bash run.sh` launches a resumable 99-run experiment with five CPU workers:
+
+- Algorithms: panel PPO, panel Double DQN, and Dyna (panel Double DQN plus one-step imagined updates).
+- Environments: Empty-5x5, LavaGapS5, DoorKey-5x5.
+- Judges: 1, 2, 4. Seeds: 0, 1, 2.
+- Real-only PPO and Double DQN baselines run once per environment and seed (18 additional runs).
+- Every method receives the same real-sample budget per environment: 40k / 150k / 300k respectively.
+  The existing PPO baseline can overshoot by less than one 1,024-step collection batch; actual samples are recorded.
+
+Panel DQN uses ensemble disagreement to acquire real transitions and learns only from real replay.
+Dyna shares that collection and real-update schedule, adding 24 model updates per round.
+Panel PPO uses horizon-one imagination mixed with 50% real rollout samples and 25 judge updates per round.
+The DQN methods also use 25 judge updates per round. One-judge queries are uniform because ensemble variance is zero.
+Evaluation occurs approximately every 1,024 real samples, and at the end, using 10 episodes.
+These comparisons measure whole methods: the PPO and Q-learning collectors/exploration differ.
+They are not a controlled isolation of the policy optimizer, and judge-count comparisons also change compute.
+
+```bash
+bash run.sh --dry-run              # inspect planned/completed counts
+bash run.sh                        # stop starting new jobs after eight hours; in-flight jobs finish
+bash run.sh --hours 0              # finish all remaining jobs without a time limit
+bash run.sh --steps 384 --seeds 0 --eval-episodes 1 --out runs/algo_smoke
+python -m panel.analysis.algo_report runs/algo_sweep
+```
+
+Run the same command again to resume. Successful jobs are skipped and failed jobs are retried.
+Resume is at completed-job boundaries; an interrupted job restarts from scratch.
+A manifest rejects changed experiment settings in an existing output directory; use a fresh `--out` for a new design.
+A lock file records the runner PID and prevents concurrent writers. Following an abrupt termination,
+check that PID is no longer running before removing a stale `sweep.lock`.
+
+Outputs include `results.jsonl`, `manifest.json`, `per_seed.csv`, `summary.csv`, `summary.txt`, and per-environment learning curves.
+Reports include mean/SD of late return, first threshold crossings, sustained threshold attainment, collapse, and training/elapsed time.
+The target is 80% of the real-only PPO baseline's final-20%-of-steps mean; it is unavailable if that baseline has not learned.
+Evaluation uses fixed held-out seeds; PPO samples its policy and DQN acts greedily. Evaluation samples are uncharged,
+so those layouts should not subsequently be used to tune configurations without a fresh final evaluation set.
+
 ## Status
 
 Pre-implementation. See `plan.md`.
